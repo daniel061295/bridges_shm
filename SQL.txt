@@ -1,0 +1,8 @@
+sudo mysql -u root -p
+Manzana2132881+
+connect proyecto
+SHOW COLUMNS FROM proyecto.acelerometros;
+select * from acelerometros where NODO = 0
+DELETE FROM acelerometros BORRA TODAS LAS FILAS
+alter table acelerometros drop column VALOR_Y;
+alter table acelerometros add VALOR_y varchar(50) NOT NULL;

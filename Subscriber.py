@@ -20,7 +20,7 @@ import mysql.connector
 
 
 conn = mysql.connector.connect(host="127.0.0.1",user="root",passwd="Manzana2132881+",database="proyecto")
-
+topic = 'SHM_PROYECTO/#'
 
 # setting callbacks for different events to see if it works, print the message etc.
 def on_connect(client, userdata, flags, rc, properties=None):
@@ -40,15 +40,18 @@ def on_message(client, userdata, msg):
 
     mensaje = str(msg.payload).strip().split(',')
     fechahora = mensaje[0][2:]
-    nodo = mensaje[1]
-    valor = str(int(mensaje[2][:-3])/256000)
-    print('fechahora\t=\t{}\nnodo\t\t=\t{}\nvalor\t\t=\t{}\n'.format(fechahora,nodo,valor))
+    #fechahora = time.strftime('%y-%m-%d %H:%M:%S')
+    nodo = int(mensaje[1])
+    valor_x = str(int(mensaje[2][:])/256000)
+    valor_y = str(int(mensaje[3][:]) / 256000)
+    valor_z = str(int(mensaje[4][:-1]) / 256000)
+    print('fechahora\t=\t{}\nnodo\t\t=\t{}\nvalor_x\t\t=\t{}\nvalor_y\t\t=\t{}\nvalor_z\t\t=\t{}\n'.format(fechahora,nodo,valor_x,valor_y,valor_z))
     cursor = conn.cursor()
-    query = "INSERT INTO acelerometros (`FECHAYHORA`,`NODO`,`VALOR`)\
-            VALUES(%s, %s, %s)"
-    val = (fechahora,nodo,valor)
+    query = "INSERT INTO acelerometros (`FECHAYHORA`,`NODO`,`VALOR_X`,`VALOR_Y`,`VALOR_Z`) VALUES(%s, %s, %s, %s, %s)"
+    val = (fechahora,nodo,valor_x,valor_y,valor_z)
     cursor.execute(query,val)
     conn.commit()
+    #print(msg)
 
 # using MQTT version 5 here, for 3.1.1: MQTTv311, 3.1: MQTTv31
 # userdata is user defined data of any type, updated by user_data_set()
@@ -69,7 +72,7 @@ client.on_message = on_message
 client.on_publish = on_publish
 
 # subscribe to all topics of encyclopedia by using the wildcard "#"
-client.subscribe("encyclopedia/#", qos=1)
+client.subscribe(topic, qos=2)
 
 # a single publish, this can also be done in loops, etc.
 #client.publish("encyclopedia/temperature", payload="hot", qos=1)

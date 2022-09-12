@@ -6,7 +6,8 @@
  #else
  #include <WiFi.h>  
 #endif
- 
+
+#include "time.h" 
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
 
@@ -18,10 +19,29 @@
 //float t = 0;
 
 // Memory register addresses:
-const String id_nodo = "0";
-const int Ts = 1000;
+const String id_nodo = "13";
+const int Ts = 50;
 const int CHIP_SELECT_PIN = 17; // PARA EL ACELEROMETRO
 const int csPin = 18;          // LoRa radio chip select
+
+//---- WiFi settings
+const char* ssid = "APTO_508_2.4";
+const char* password = "Pocholo0203D";
+
+//---- MQTT Broker settings
+const char* mqtt_server = "a33454d332054780b8feaf83950ed54a.s2.eu.hivemq.cloud";  // replace with your broker url
+const char* mqtt_username = "danielcardenaz";
+const char* mqtt_password = "Manzana2132881";
+const int mqtt_port =8883;
+const char* topic_mqtt= "SHM_PROYECTO/13";
+
+//---- Time server settings
+const char* ntpServer = "pool.ntp.org"; //Servidor para tiempo
+const long  gmtOffset_sec = -18000;    //GTM pais  -5*60-60    
+const int   daylightOffset_sec = 3600;  //Delay de hora
+char dateTime[50];
+bool timeflag = false;
+
 
 const int XDATA3 = 0x08;
 const int XDATA2 = 0x09;
@@ -46,17 +66,8 @@ const int READ_BYTE = 0x01;
 const int WRITE_BYTE = 0x00;
 
 
-//---- WiFi settings
-const char* ssid = "APTO_508_2.4";
-const char* password = "Pocholo0203D";
 
-//---- MQTT Broker settings
-const char* mqtt_server = "a33454d332054780b8feaf83950ed54a.s2.eu.hivemq.cloud";  // replace with your broker url
-const char* mqtt_username = "danielcardenaz";
-const char* mqtt_password = "Manzana2132881";
-const int mqtt_port =8883;
 
- 
 
 WiFiClientSecure espClient;   // for no secure connection use WiFiClient instead of WiFiClientSecure 
 //WiFiClient espClient;
@@ -77,12 +88,6 @@ char msg[MSG_BUFFER_SIZE];
 //
 //const char* command1_topic="command1";
 ////const char* command1_topic="command2";
-
-
-const char* topic_mqtt= "encyclopedia/temperature";
-
-
-
 
 
 static const char *root_ca PROGMEM = R"EOF(
@@ -138,6 +143,10 @@ void setup_wifi() {
   randomSeed(micros());
   Serial.println("\nWiFi connected\nIP address: ");
   Serial.println(WiFi.localIP());
+
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  //printLocalTime();
+  
 }
 
 
@@ -162,8 +171,6 @@ void reconnect() {
     }
   }
 }
-
-
 
 
 void setup() {
@@ -211,36 +218,52 @@ void loop() {
   readMultipleData(axisAddresses, dataSize, axisMeasures);
 
   // Split data
-  //int xdata = (axisMeasures[0] >> 4) + (axisMeasures[1] << 4) + (axisMeasures[2] << 12);
-  //int ydata = (axisMeasures[3] >> 4) + (axisMeasures[4] << 4) + (axisMeasures[5] << 12);
+  int xdata = (axisMeasures[0] >> 4) + (axisMeasures[1] << 4) + (axisMeasures[2] << 12);
+  int ydata = (axisMeasures[3] >> 4) + (axisMeasures[4] << 4) + (axisMeasures[5] << 12);
   int zdata = (axisMeasures[6] >> 4) + (axisMeasures[7] << 4) + (axisMeasures[8] << 12);
 
   
   // extend the sign bit from bit 19 to bit 31
-  //xdata = (xdata<<12)>>12;
-  //ydata = (ydata<<12)>>12;
+  xdata = (xdata<<12)>>12;
+  ydata = (ydata<<12)>>12;
   zdata = (zdata<<12)>>12;
 
   // LBS to g
-  //double xdata_g = double(xdata)/256000;
-  //double ydata_g = double(ydata)/256000;
+  double xdata_g = double(xdata)/256000;
+  double ydata_g = double(ydata)/256000;
   double zdata_g   = double(zdata)/256000; // DATO EN G
+  
+  String xdata_str = String(xdata);
+  String ydata_str = String(ydata);
   String zdata_str = String(zdata);
   //Serial.println(id_nodo);
   //Serial.println(zdata_str);
   //Serial.println(id_nodo + zdata_str);
-  String message = zdata_str + id_nodo;
+  //String message = zdata_str + id_nodo;
   //Serial.print(zdata_g,12);
   //Serial.print("\n");
   
 //################SENDING#############################
-
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+  Serial.println("Failed to obtain time");
+    //return;
+  }
+  //Serial.println(&timeinfo, "%Y-%b-%d %H:%M:%S");
+  strftime(dateTime,50, "%Y-%m-%d %H:%M:%S", &timeinfo);
+  //===============================================================================================
+  if ((strcmp(dateTime,"2022-09-11 22:56:00") ==  0)&&(timeflag == false)) {
+    Serial.println("Triggered!");
+    timeflag = true;
+    }
+  //===============================================================================================
 
 //  int node = 1;
 //  int dato = 256000;
-  String mensaje = String(id_nodo) +","+ zdata_str;
+  String mensaje = String(dateTime) + "," + String(id_nodo) +","+ xdata_str +","+ ydata_str +","+ zdata_str;
 //  String message = zdata_str + id_nodo;
   //---- example: how to publish sensor values every 5 sec
+
   unsigned long now = millis();
   if (now - lastMsg > Ts) {
     lastMsg = now;
@@ -249,11 +272,12 @@ void loop() {
   Serial.print("Sending packet: ");
   //Serial.println(zdata);
 //  Serial.println(zdata_g,12);
-  Serial.println(message);
-  Serial.print("From node: ");
-  Serial.println(id_nodo);
+  Serial.println(mensaje);
+  //Serial.print("From node: ");
+  //Serial.println(id_nodo);
     publishMessage(topic_mqtt,String(mensaje),true);    
 //    publishMessage(topic_mqttt,String(sensor2),true);
+  
     
   }
 
@@ -346,4 +370,5 @@ void readMultipleData(int *addresses, int dataSize, int *readedData) {
   }
 
 }
+
 //######################################################################################
