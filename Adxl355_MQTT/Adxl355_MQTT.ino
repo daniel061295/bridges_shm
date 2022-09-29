@@ -1,6 +1,6 @@
 #include <SPI.h>
 // Pins used for the connection with the sensor
-
+#include <ArduinoJson.h>
 #ifdef ESP8266
  #include <ESP8266WiFi.h>  // Pins for board ESP8266 Wemos-NodeMCU
  #else
@@ -11,36 +11,45 @@
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
 
+
 //######################DECLARANDO REGISTROS Y VARIABLES ADXL355############################################
 //#define SCK 5
 //#define MISO 19
 //#define MOSI 27
 
-//float t = 0;
 
 // Memory register addresses:
-const String id_nodo = "13";
+const String id_nodo = "20"; //RECUERDA AGREGAR TAMBIEN ESTE VALOR AL TOPIC
 const int Ts = 50;
 const int CHIP_SELECT_PIN = 17; // PARA EL ACELEROMETRO
 const int csPin = 18;          // LoRa radio chip select
 
+
 //---- WiFi settings
 const char* ssid = "APTO_508_2.4";
 const char* password = "Pocholo0203D";
+//const char* ssid = "12345";
+//const char* password = "DAVIDVAS";
+
 
 //---- MQTT Broker settings
 const char* mqtt_server = "a33454d332054780b8feaf83950ed54a.s2.eu.hivemq.cloud";  // replace with your broker url
 const char* mqtt_username = "danielcardenaz";
 const char* mqtt_password = "Manzana2132881";
-const int mqtt_port =8883;
-const char* topic_mqtt= "SHM_PROYECTO/13";
+const int mqtt_port = 8883;
+const char* topic_mqtt= "SHM_PROYECTO/20";  //<---------------------- AGREGAR id_nodo AL FINAL 
+const char* topic_trigger = "SHM_PROYECTO/TRIGGER";
 
 //---- Time server settings
 const char* ntpServer = "pool.ntp.org"; //Servidor para tiempo
 const long  gmtOffset_sec = -18000;    //GTM pais  -5*60-60    
-const int   daylightOffset_sec = 3600;  //Delay de hora
+//const int   daylightOffset_sec = 3600;  //Delay de hora
+const int   daylightOffset_sec = 0;  //SIN Delay
+
 char dateTime[50];
 bool timeflag = false;
+char starting_time[50];
+String incommingMessage;
 
 
 const int XDATA3 = 0x08;
@@ -65,29 +74,16 @@ const int MEASURE_MODE = 0x06; // Only accelerometer
 const int READ_BYTE = 0x01;
 const int WRITE_BYTE = 0x00;
 
-
-
+// Initialize JSON Document with apropiate size
+DynamicJsonDocument doc(2048);
+int count;
+String mensaje;
 
 
 WiFiClientSecure espClient;   // for no secure connection use WiFiClient instead of WiFiClientSecure 
 //WiFiClient espClient;
 PubSubClient client(espClient);
 unsigned long lastMsg = 0;
-
-#define MSG_BUFFER_SIZE  (50)
-char msg[MSG_BUFFER_SIZE];
-//
-//
-//int sensor1 = 0;
-//float sensor2 = 0;
-//int command1 =0;
-//
-//const char* sensor1_topic= "sensor1";
-//const char*  sensor2_topic="sensor2";
-////const char*  sensor2_topic="sensor3";
-//
-//const char* command1_topic="command1";
-////const char* command1_topic="command2";
 
 
 static const char *root_ca PROGMEM = R"EOF(
@@ -125,7 +121,7 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 )EOF";
 
 //###################################################################
-int counter = 0;
+
 
 //==========================================
 void setup_wifi() {
@@ -161,8 +157,8 @@ void reconnect() {
     if (client.connect(clientId.c_str(), mqtt_username, mqtt_password)) {
       Serial.println("connected");
 
-      client.subscribe(topic_mqtt);   // subscribe the topics here
-      //client.subscribe(command2_topic);   // subscribe the topics here
+//      client.subscribe(topic_mqtt);   // subscribe the topics here
+      client.subscribe(topic_trigger);   // subscribe the topics here
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -188,8 +184,6 @@ void setup() {
   delay(100);
   while (!Serial) delay(1);
   setup_wifi();
-//  pinMode(BUILTIN_LED, OUTPUT);     // Initialize the BUILTIN_LED pin as an output
-
 
   #ifdef ESP8266
     espClient.setInsecure();
@@ -201,49 +195,14 @@ void setup() {
   client.setCallback(callback);
 
   }
-  //LoRa.setSpreadingFactor(SF); 
-
+ 
+//###################################### BEGIN LOOP #################################################
 
 void loop() {
   if (!client.connected()) reconnect();
   client.loop();
-  
 
-//#################READING FROM ADXL 355######################
-  int axisAddresses[] = {XDATA1, XDATA2, XDATA3, YDATA1, YDATA2, YDATA3, ZDATA1, ZDATA2, ZDATA3};
-  int axisMeasures[] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
-  int dataSize = 9;
-
-  // Read accelerometer data
-  readMultipleData(axisAddresses, dataSize, axisMeasures);
-
-  // Split data
-  int xdata = (axisMeasures[0] >> 4) + (axisMeasures[1] << 4) + (axisMeasures[2] << 12);
-  int ydata = (axisMeasures[3] >> 4) + (axisMeasures[4] << 4) + (axisMeasures[5] << 12);
-  int zdata = (axisMeasures[6] >> 4) + (axisMeasures[7] << 4) + (axisMeasures[8] << 12);
-
-  
-  // extend the sign bit from bit 19 to bit 31
-  xdata = (xdata<<12)>>12;
-  ydata = (ydata<<12)>>12;
-  zdata = (zdata<<12)>>12;
-
-  // LBS to g
-  double xdata_g = double(xdata)/256000;
-  double ydata_g = double(ydata)/256000;
-  double zdata_g   = double(zdata)/256000; // DATO EN G
-  
-  String xdata_str = String(xdata);
-  String ydata_str = String(ydata);
-  String zdata_str = String(zdata);
-  //Serial.println(id_nodo);
-  //Serial.println(zdata_str);
-  //Serial.println(id_nodo + zdata_str);
-  //String message = zdata_str + id_nodo;
-  //Serial.print(zdata_g,12);
-  //Serial.print("\n");
-  
-//################SENDING#############################
+   //===============================================================================================
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo)){
   Serial.println("Failed to obtain time");
@@ -251,61 +210,88 @@ void loop() {
   }
   //Serial.println(&timeinfo, "%Y-%b-%d %H:%M:%S");
   strftime(dateTime,50, "%Y-%m-%d %H:%M:%S", &timeinfo);
-  //===============================================================================================
-  if ((strcmp(dateTime,"2022-09-11 22:56:00") ==  0)&&(timeflag == false)) {
+  
+  if ((strcmp(dateTime,starting_time) ==  0)&&(timeflag == false)) {
     Serial.println("Triggered!");
     timeflag = true;
     }
   //===============================================================================================
 
-//  int node = 1;
-//  int dato = 256000;
-  String mensaje = String(dateTime) + "," + String(id_nodo) +","+ xdata_str +","+ ydata_str +","+ zdata_str;
-//  String message = zdata_str + id_nodo;
-  //---- example: how to publish sensor values every 5 sec
-
+if (timeflag == true ){ 
   unsigned long now = millis();
   if (now - lastMsg > Ts) {
     lastMsg = now;
-//    sensor1= random(50);       // replace the random value with your sensor value
-//    sensor2= 20+random(80);    // replace the random value  with your sensor value
-  Serial.print("Sending packet: ");
-  //Serial.println(zdata);
-//  Serial.println(zdata_g,12);
-  Serial.println(mensaje);
-  //Serial.print("From node: ");
-  //Serial.println(id_nodo);
-    publishMessage(topic_mqtt,String(mensaje),true);    
-//    publishMessage(topic_mqttt,String(sensor2),true);
+  //#################READING FROM ADXL 355######################
+    int axisAddresses[] = {XDATA1, XDATA2, XDATA3, YDATA1, YDATA2, YDATA3, ZDATA1, ZDATA2, ZDATA3};
+    int axisMeasures[] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    int dataSize = 9;
+  
+    // Read accelerometer data
+    readMultipleData(axisAddresses, dataSize, axisMeasures);
+  
+    // Split data
+    int xdata = (axisMeasures[0] >> 4) + (axisMeasures[1] << 4) + (axisMeasures[2] << 12);
+    int ydata = (axisMeasures[3] >> 4) + (axisMeasures[4] << 4) + (axisMeasures[5] << 12);
+    int zdata = (axisMeasures[6] >> 4) + (axisMeasures[7] << 4) + (axisMeasures[8] << 12);
   
     
+    // extend the sign bit from bit 19 to bit 31
+    xdata = (xdata<<12)>>12;
+    ydata = (ydata<<12)>>12;
+    zdata = (zdata<<12)>>12;
+  
+    // LBS to g
+    double xdata_g = double(xdata)/256000;
+    double ydata_g = double(ydata)/256000;
+    double zdata_g   = double(zdata)/256000; // DATO EN G
+    
+    String xdata_str = String(xdata);
+    String ydata_str = String(ydata);
+    String zdata_str = String(zdata);
+
+//################ADDING TO JSON#############################
+    
+//    JsonArray doc_0 = doc.createNestedArray();
+//    doc_0.add(dateTime);
+//    doc_0.add(id_nodo);
+//    doc_0.add(xdata_str);
+//    doc_0.add(ydata_str);
+//    doc_0.add(zdata_str);
+    JsonObject doc_0 = doc.createNestedObject();
+    doc_0["fecha"] = dateTime;
+    doc_0["nodo"] = id_nodo;
+    doc_0["x"] = xdata;
+    doc_0["y"] = ydata;
+    doc_0["z"] = zdata;
+    count++;
+//    String mensaje = String(dateTime) + "," + String(id_nodo) +","+ xdata_str +","+ ydata_str +","+ zdata_str;
+//    Serial.println(count);
+//################SENDING#############################
+    if (count == 20){
+      Serial.print("Sending packet: ");
+      serializeJson(doc, mensaje);
+      //Serial.println(mensaje);
+      publishMessage(topic_mqtt,mensaje,true);
+      doc.clear();
+      mensaje = "";
+      count = 0; 
+    }      
   }
-
-  
-  
-  counter ++;
-
-//  delay(Ts);
 }
 
+}
 
+//###################################### END LOOP #################################################
+
+
+//void callback(char* topic, byte* payload, unsigned int length) {
 void callback(char* topic, byte* payload, unsigned int length) {
-  String incommingMessage = "";
+  incommingMessage = "";
   for (int i = 0; i < length; i++) incommingMessage+=(char)payload[i];
-  
+  incommingMessage.toCharArray(starting_time,50);
   Serial.println("Message arrived ["+String(topic)+"]"+incommingMessage);
-  
-  //--- check the incomming message
-//    if( strcmp(topic,command1_topic) == 0){
-//     if (incommingMessage.equals("1")) digitalWrite(BUILTIN_LED, LOW);   // Turn the LED on 
-//     else digitalWrite(BUILTIN_LED, HIGH);  // Turn the LED off 
-//  }
+  timeflag = false;
 
-   //  check for other commands
- /*  else  if( strcmp(topic,command2_topic) == 0){
-     if (incommingMessage.equals("1")) {  } // do something else
-  }
-  */
 }
 
 void publishMessage(const char* topic, String payload , boolean retained){
@@ -314,16 +300,14 @@ void publishMessage(const char* topic, String payload , boolean retained){
 }
 
 
-
 //##############################FUNCIONES ADXL355######################################################
 
 void ADXL355_init() {
   pinMode(CHIP_SELECT_PIN, OUTPUT);
   SPI.begin();
-  SPI.beginTransaction(SPISettings(200000,MSBFIRST,SPI_MODE0));
+  SPI.beginTransaction(SPISettings(8000000,MSBFIRST,SPI_MODE0));
   digitalWrite(CHIP_SELECT_PIN, HIGH);
  }
-
 
 
 /* 
@@ -368,7 +352,6 @@ void readMultipleData(int *addresses, int dataSize, int *readedData) {
     digitalWrite(CHIP_SELECT_PIN, HIGH);
      
   }
-
 }
 
 //######################################################################################
